@@ -73,7 +73,8 @@ ggplot(Low_streets)+
 
 ```{r park centroid}
 park_centroid <- st_centroid(Low_parks)
-park_centroid <- park_centroid%>%
+park_centroid <- park_centroid%>% 
+  st_transform("WGS84")%>%
   mutate(id=seq(1,length(park_centroid$SHAPE),by=1))
 
 ggplot(park_centroid)+
@@ -93,7 +94,8 @@ st_geometry(grid) <- "geometry"
 grid <- grid %>%
   mutate(id = seq(1, length(grid$geometry), by=1))
 
-grid_points <- st_centroid(grid)
+grid_points <- st_centroid(grid) %>% 
+  st_transform("WGS84")
 
 ggplot(grid) +
   geom_sf() +
@@ -106,8 +108,8 @@ ggplot(grid) +
 r5r_core <- setup_r5("networks", verbose = FALSE)
 ```
 
-```{r}
-ttm <- travel_time_matrix(r5r_core = r5r_core,
+```{r WALK}
+ttm_walk <- travel_time_matrix(r5r_core = r5r_core,
                           origins = park_centroid,
                           destinations = grid_points,
                           mode = c("WALK"),
@@ -118,7 +120,7 @@ ttm <- travel_time_matrix(r5r_core = r5r_core,
 ```
 
 ```{r}
-tt_wide <- ttm %>%
+tt_wide_walk <- ttm_walk %>%
   pivot_wider(names_from = fromId, 
               names_prefix = "from", values_from = travel_time) %>%
   rename(id = toId) %>% 
@@ -127,8 +129,211 @@ tt_wide <- ttm %>%
   rowwise() %>%
   mutate(from_any = min(c_across(starts_with("from")), na.rm = TRUE))
 
-st_geometry(tt_wide) <- "geometry"
+st_geometry(tt_wide_walk) <- "geometry"
+```
+
+```{r}
+iso_pallete <- wes_palette("Zissou1", n = 5)
+
+iso5min <- tt_wide_walk[tt_wide_walk$from_any < 6,] %>%
+  st_union()
+
+iso10min <- tt_wide_walk[tt_wide_walk$from_any < 11,] %>%
+  st_union()
+
+iso15min <- tt_wide_walk[tt_wide_walk$from_any < 16,] %>%
+  st_union()
+
+ggplot(Low_streets) +
+  geom_sf(data = iso15min, 
+          aes(fill = "Area within 15 minutes"), 
+          color = NA) +
+  geom_sf(data = iso10min, 
+          aes(fill = "Area within 10 minutes"), 
+          color = NA) +
+  geom_sf(data = iso5min, 
+          aes(fill = "Area within 05 minutes"), 
+          color = NA) +
+  geom_sf(alpha = 0.5) +
+  scale_fill_manual(values = c(iso_pallete[1], 
+                               iso_pallete[3],
+                               iso_pallete[5]),
+        name = "Walk time to the\nnearest park\n(minutes)") +
+  theme_map()
+
+st_write(iso15min,"shapefiles/WALKiso15min.shp")
+st_write(iso10min,"shapefiles/WALKiso10min.shp")
+st_write(iso5min,"shapefiles/WALKiso5min.shp")
 ```
 
 
+```{r BIKE}
+ttm_bike <- travel_time_matrix(r5r_core = r5r_core,
+                          origins = park_centroid,
+                          destinations = grid_points,
+                          mode = c("BICYCLE"),
+                          departure_datetime = as.POSIXct("15-11-2021 14:00:00",
+                                 format = "%d-%m-%Y %H:%M:%S"),
+                          max_trip_duration = 480,
+                          verbose = FALSE)
+```
 
+```{r}
+tt_wide_bike <- ttm_bike %>%
+  pivot_wider(names_from = fromId, 
+              names_prefix = "from", values_from = travel_time) %>%
+  rename(id = toId) %>% 
+  merge(grid) %>%
+  replace(is.na(.), 999) %>%
+  rowwise() %>%
+  mutate(from_any = min(c_across(starts_with("from")), na.rm = TRUE))
+
+st_geometry(tt_wide_bike) <- "geometry"
+```
+
+
+```{r}
+iso5min_bike <- tt_wide_bike[tt_wide_bike$from_any < 6,] %>%
+  st_union()
+
+iso10min_bike <- tt_wide_bike[tt_wide_bike$from_any < 11,] %>%
+  st_union()
+
+iso15min_bike <- tt_wide_bike[tt_wide_bike$from_any < 16,] %>%
+  st_union()
+
+ggplot(Low_streets) +
+  geom_sf(data = iso15min_bike, 
+          aes(fill = "Area within 15 minutes"), 
+          color = NA) +
+  geom_sf(data = iso10min_bike, 
+          aes(fill = "Area within 10 minutes"), 
+          color = NA) +
+  geom_sf(data = iso5min_bike, 
+          aes(fill = "Area within 05 minutes"), 
+          color = NA) +
+  geom_sf(alpha = 0.5) +
+  scale_fill_manual(values = c(iso_pallete[1], 
+                               iso_pallete[3],
+                               iso_pallete[5]),
+        name = "Bike time to the\nnearest park\n(minutes)") +
+  theme_map()
+
+st_write(iso15min_bike,"shapefiles/BIKEiso15min.shp")
+st_write(iso10min_bike,"shapefiles/BIKEiso10min.shp")
+st_write(iso5min_bike,"shapefiles/BIKEiso5min.shp")
+```
+
+```{r TRANSIT}
+ttm_transit <- travel_time_matrix(r5r_core = r5r_core,
+                          origins = park_centroid,
+                          destinations = grid_points,
+                          mode = c("TRANSIT"),
+                          departure_datetime = as.POSIXct("15-11-2021 14:00:00",
+                                 format = "%d-%m-%Y %H:%M:%S"),
+                          max_trip_duration = 480,
+                          verbose = FALSE)
+```
+
+```{r}
+tt_wide_transit <- ttm_transit %>%
+  pivot_wider(names_from = fromId, 
+              names_prefix = "from", values_from = travel_time) %>%
+  rename(id = toId) %>% 
+  merge(grid) %>%
+  replace(is.na(.), 999) %>%
+  rowwise() %>%
+  mutate(from_any = min(c_across(starts_with("from")), na.rm = TRUE))
+
+st_geometry(tt_wide_transit) <- "geometry"
+```
+
+
+```{r}
+iso5min_transit <- tt_wide_transit[tt_wide_transit$from_any < 6,] %>%
+  st_union()
+
+iso10min_transit <- tt_wide_transit[tt_wide_transit$from_any < 11,] %>%
+  st_union()
+
+iso15min_transit <- tt_wide_transit[tt_wide_transit$from_any < 16,] %>%
+  st_union()
+
+ggplot(Low_streets) +
+  geom_sf(data = iso15min_transit, 
+          aes(fill = "Area within 15 minutes"), 
+          color = NA) +
+  geom_sf(data = iso10min_transit, 
+          aes(fill = "Area within 10 minutes"), 
+          color = NA) +
+  geom_sf(data = iso5min_transit, 
+          aes(fill = "Area within 05 minutes"), 
+          color = NA) +
+  geom_sf(alpha = 0.5) +
+  scale_fill_manual(values = c(iso_pallete[1], 
+                               iso_pallete[3],
+                               iso_pallete[5]),
+        name = "Transit time to the\nnearest park\n(minutes)") +
+  theme_map()
+
+st_write(iso15min_transit,"shapefiles/TRANSITiso15min.shp")
+st_write(iso10min_transit,"shapefiles/TRANSITiso10min.shp")
+st_write(iso5min_transit,"shapefiles/TRANSITiso5min.shp")
+```
+
+```{r CAR}
+ttm_car <- travel_time_matrix(r5r_core = r5r_core,
+                          origins = park_centroid,
+                          destinations = grid_points,
+                          mode = c("CAR"),
+                          departure_datetime = as.POSIXct("15-11-2021 14:00:00",
+                                 format = "%d-%m-%Y %H:%M:%S"),
+                          max_trip_duration = 480,
+                          verbose = FALSE)
+```
+
+```{r}
+tt_wide_car <- ttm_car %>%
+  pivot_wider(names_from = fromId, 
+              names_prefix = "from", values_from = travel_time) %>%
+  rename(id = toId) %>% 
+  merge(grid) %>%
+  replace(is.na(.), 999) %>%
+  rowwise() %>%
+  mutate(from_any = min(c_across(starts_with("from")), na.rm = TRUE))
+
+st_geometry(tt_wide_car) <- "geometry"
+```
+
+
+```{r}
+iso5min_car <- tt_wide_car[tt_wide_car$from_any < 6,] %>%
+  st_union()
+
+iso10min_car <- tt_wide_car[tt_wide_car$from_any < 11,] %>%
+  st_union()
+
+iso15min_car <- tt_wide_car[tt_wide_car$from_any < 16,] %>%
+  st_union()
+
+ggplot(Low_streets) +
+  geom_sf(data = iso15min_car, 
+          aes(fill = "Area within 15 minutes"), 
+          color = NA) +
+  geom_sf(data = iso10min_car, 
+          aes(fill = "Area within 10 minutes"), 
+          color = NA) +
+  geom_sf(data = iso5min_car, 
+          aes(fill = "Area within 05 minutes"), 
+          color = NA) +
+  geom_sf(alpha = 0.5) +
+  scale_fill_manual(values = c(iso_pallete[1], 
+                               iso_pallete[3],
+                               iso_pallete[5]),
+        name = "Car time to the\nnearest park\n(minutes)") +
+  theme_map()
+
+st_write(iso15min_car,"shapefiles/CARiso15min.shp")
+st_write(iso10min_car,"shapefiles/CARiso10min.shp")
+st_write(iso5min_car,"shapefiles/CARiso5min.shp")
+```
